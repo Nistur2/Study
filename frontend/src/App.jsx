@@ -254,8 +254,10 @@ export default function StudyAI() {
       const blocks = [];
       for (const f of files) {
         if (f.mime === "text") {
-          blocks.push({ type:"text", text:`\n--- File: ${f.name} ---\n${f.data.slice(0, 3500)}` });
+          blocks.push({ type:"text", text:`\n--- File: ${f.name} ---\n${f.data.slice(0, 6000)}` });
         } else if (f.mime === "application/pdf") {
+          const sizeInMB = (f.size / 1048576).toFixed(1);
+          if (f.size > 10 * 1048576) throw new Error(`PDF "${f.name}" is ${sizeInMB}MB — please use a file under 10MB.`);
           blocks.push({ type:"document", source:{ type:"base64", media_type:"application/pdf", data:f.data } });
           blocks.push({ type:"text", text:`(above: ${f.name})` });
         } else {
@@ -268,16 +270,19 @@ export default function StudyAI() {
       const resp = await fetch("/api/messages", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
-          model:"claude-haiku-4-5-20251001", max_tokens:1000,
+          model:"claude-haiku-4-5-20251001", max_tokens:2000,
           system: buildSys(mode, difficulty, language),
           messages:[{ role:"user", content:blocks }]
         })
       });
 
       const d = await resp.json();
-      if (d.error) throw new Error(d.error.message);
+      if (d.error) throw new Error(`API: ${d.error.type} — ${d.error.message}`);
+      if (!d.content?.length) throw new Error("Empty response from API. Try again.");
       const raw = d.content.map(b=>b.text||"").join("").replace(/```(?:json)?/g,"").replace(/```/g,"").trim();
-      const parsed = JSON.parse(raw);
+      let parsed;
+      try { parsed = JSON.parse(raw); }
+      catch { throw new Error("Response was cut off. Try a smaller file or shorter document."); }
       const res = { type:mode, data:parsed };
       setResult(res);
 
@@ -287,7 +292,7 @@ export default function StudyAI() {
       setHistory(next);
       lsSet(next);
     } catch (e) {
-      setError("Could not generate content. Please try again."); console.error(e);
+      setError(e.message || "Could not generate content. Please try again."); console.error(e);
     } finally { clearInterval(iv); setLoading(false); }
   };
 
