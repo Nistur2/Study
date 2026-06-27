@@ -1,60 +1,72 @@
-const express = require("express");
-const path    = require("path");
+const express  = require("express");
+const path     = require("path");
+const pdfParse = require("pdf-parse");
 
 const app = express();
 app.use(express.json({ limit: "50mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// ── Transform Anthropic-style blocks → Gemini parts ──────────────────────────
-function toGeminiParts(blocks) {
-  if (!Array.isArray(blocks)) return [{ text: String(blocks) }];
-  return blocks.map(b => {
-    if (b.type === "text")     return { text: b.text };
-    if (b.type === "document") return { inline_data: { mime_type: b.source.media_type, data: b.source.data } };
-    if (b.type === "image")    return { inline_data: { mime_type: b.source.media_type, data: b.source.data } };
-    return { text: "" };
-  }).filter(p => p.text !== "" || p.inline_data);
+// ── Extract text from base64-encoded PDF ─────────────────────────────────────
+async function extractPdf(base64) {
+  const buffer = Buffer.from(base64, "base64");
+  const parsed = await pdfParse(buffer);
+  return parsed.text.slice(0, 12000); // cap to avoid token overflow
 }
 
-// ── Gemini proxy ──────────────────────────────────────────────────────────────
-// Accepts Anthropic-format requests from the frontend, converts to Gemini,
-// returns Anthropic-format response — frontend needs zero changes.
+// ── Convert Anthropic-style content blocks → plain text for Groq ─────────────
+async function toText(blocks) {
+  if (!Array.isArray(blocks)) return String(blocks);
+  const parts = [];
+  for (const b of blocks) {
+    if (b.type === "text") {
+      parts.push(b.text);
+    } else if (b.type === "document" && b.source?.media_type === "application/pdf") {
+      const text = await extractPdf(b.source.data);
+      parts.push(`[PDF Content]\n${text}`);
+    } else if (b.type === "image") {
+      parts.push("[An image was uploaded — describe and generate content based on any visible text or diagrams.]");
+    }
+  }
+  return parts.join("\n\n");
+}
+
+// ── Groq proxy ────────────────────────────────────────────────────────────────
 app.post("/api/messages", async (req, res) => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: { message: "GEMINI_API_KEY is not set." } });
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: { message: "GROQ_API_KEY is not set." } });
 
   try {
     const { system, messages, max_tokens } = req.body;
-    const userBlocks = messages?.[0]?.content || [];
-    const parts      = toGeminiParts(userBlocks);
+    const userText = await toText(messages?.[0]?.content || []);
 
-    const geminiBody = {
-      ...(system && { system_instruction: { parts: [{ text: system }] } }),
-      contents: [{ role: "user", parts }],
-      generationConfig: {
-        maxOutputTokens: max_tokens || 2000,
-        temperature: 0.3,
-      },
+    const body = {
+      model: "llama-3.3-70b-versatile",
+      temperature: 0.3,
+      max_tokens: max_tokens || 2000,
+      messages: [
+        ...(system ? [{ role: "system", content: system }] : []),
+        { role: "user", content: userText },
+      ],
     };
 
-    const model = "gemini-2.0-flash";
-    const url   = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-    const upstream = await fetch(url, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(geminiBody),
+    const upstream = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
     });
 
     const data = await upstream.json();
 
     if (data.error) {
-      console.error("[gemini error]", data.error);
-      return res.status(400).json({ error: { type: data.error.status, message: data.error.message } });
+      console.error("[groq error]", data.error);
+      return res.status(400).json({ error: { message: data.error.message } });
     }
 
-    // Transform Gemini response → Anthropic format so the frontend stays unchanged
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    // Return in Anthropic format so the frontend needs zero changes
+    const text = data.choices?.[0]?.message?.content || "";
     res.json({ content: [{ type: "text", text }] });
 
   } catch (err) {
@@ -69,4 +81,4 @@ app.get("*", (_req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`✦ StudyAI (Gemini) → http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`✦ StudyAI (Groq) → http://localhost:${PORT}`));
