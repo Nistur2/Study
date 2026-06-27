@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 const C = {
   bg:"#090B14", surface:"#111320", card:"#191C2D", border:"#252840",
   primary:"#7C6FFF", quiz:"#FF6B8A", notes:"#00E5C4",
-  flash:"#FFB547", summary:"#7DD3FC", blank:"#C084FC",
+  flash:"#FFB547", summary:"#7DD3FC", blank:"#C084FC", chat:"#34D399",
   text:"#E4E4FF", muted:"#7478A0", mutedL:"#A0A4C4",
   correct:"#22C55E", wrong:"#EF4444",
 };
@@ -24,12 +24,25 @@ body,#root{background:${C.bg};font-family:'Inter',system-ui,sans-serif;color:${C
 .mf::after{background:radial-gradient(ellipse at 50% 120%,rgba(255,181,71,.22) 0%,transparent 65%)}
 .ms::after{background:radial-gradient(ellipse at 50% 120%,rgba(125,211,252,.22) 0%,transparent 65%)}
 .mb::after{background:radial-gradient(ellipse at 50% 120%,rgba(192,132,252,.22) 0%,transparent 65%)}
+.mc::after{background:radial-gradient(ellipse at 50% 120%,rgba(52,211,153,.22) 0%,transparent 65%)}
 .mcard:hover::after,.mcard.sel::after{opacity:1}
 .mq:hover,.mq.sel{border-color:${C.quiz}!important;box-shadow:0 0 22px rgba(255,107,138,.2)}
 .mn:hover,.mn.sel{border-color:${C.notes}!important;box-shadow:0 0 22px rgba(0,229,196,.2)}
 .mf:hover,.mf.sel{border-color:${C.flash}!important;box-shadow:0 0 22px rgba(255,181,71,.2)}
 .ms:hover,.ms.sel{border-color:${C.summary}!important;box-shadow:0 0 22px rgba(125,211,252,.2)}
 .mb:hover,.mb.sel{border-color:${C.blank}!important;box-shadow:0 0 22px rgba(192,132,252,.2)}
+.mc:hover,.mc.sel{border-color:${C.chat}!important;box-shadow:0 0 22px rgba(52,211,153,.2)}
+.chat-box{display:flex;flex-direction:column;height:440px;background:${C.surface};border:1px solid ${C.border};border-radius:14px;overflow:hidden}
+.chat-msgs{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.chat-bubble{max-width:82%;padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.65;word-break:break-word;white-space:pre-wrap}
+.chat-user{align-self:flex-end;background:${C.primary};color:white;border-radius:14px 14px 3px 14px}
+.chat-ai{align-self:flex-start;background:${C.card};border:1px solid ${C.border};color:${C.text};border-radius:14px 14px 14px 3px}
+.chat-bar{display:flex;gap:8px;padding:12px;border-top:1px solid ${C.border}}
+.chat-in{flex:1;background:${C.card};border:1px solid ${C.border};border-radius:10px;color:${C.text};padding:9px 13px;font-family:'Inter',sans-serif;font-size:14px;outline:none;transition:border-color .2s;resize:none;min-height:40px;max-height:100px}
+.chat-in:focus{border-color:${C.chat}}
+.chat-send{background:${C.chat};color:#000;border:none;border-radius:10px;padding:9px 16px;font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:13px;cursor:pointer;transition:all .2s;flex-shrink:0}
+.chat-send:hover:not(:disabled){filter:brightness(1.1);transform:translateY(-1px)}
+.chat-send:disabled{opacity:.4;cursor:not-allowed}
 .gbtn{background:linear-gradient(135deg,${C.primary},#5A4FE0);color:#fff;border:none;border-radius:12px;padding:13px 24px;font-family:'Plus Jakarta Sans',sans-serif;font-weight:700;font-size:15px;cursor:pointer;transition:all .2s;box-shadow:0 4px 22px rgba(124,111,255,.4);width:100%;display:flex;align-items:center;justify-content:center;gap:10px}
 .gbtn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 7px 28px rgba(124,111,255,.5)}
 .gbtn:disabled{opacity:.35;cursor:not-allowed;transform:none}
@@ -75,6 +88,7 @@ const MODES = [
   { id:"flash",   label:"Flashcards",  icon:"🃏", desc:"Flip cards to drill terms", cls:"mf", ac:C.flash   },
   { id:"summary", label:"TL;DR",       icon:"⚡", desc:"5-bullet summary",          cls:"ms", ac:C.summary },
   { id:"blank",   label:"Fill Blanks", icon:"✏️", desc:"Complete the sentences",    cls:"mb", ac:C.blank   },
+  { id:"chat",    label:"AI Tutor",    icon:"🤖", desc:"Ask anything about file",   cls:"mc", ac:C.chat    },
 ];
 
 const LOAD_MSGS = {
@@ -171,6 +185,9 @@ export default function StudyAI() {
   const [copied,       setCopied]       = useState("");
   const [showImport,   setShowImport]   = useState(false);
   const [importVal,    setImportVal]    = useState("");
+  const [chatMsgs,     setChatMsgs]     = useState([]);
+  const [chatInput,    setChatInput]    = useState("");
+  const [chatLoading,  setChatLoading]  = useState(false);
 
   const fileInputRef = useRef(null);
   const timerRef     = useRef(null);
@@ -236,7 +253,40 @@ export default function StudyAI() {
     setFiles([]); setMode(null); setResult(null); setError(null);
     setSel({}); setRev({}); setTimeLeft(0); setRetryIds(null);
     setCardIdx(0); setFlipped(false); setBlanks({}); setSubmitted(false);
-    setShareCode(null); if (timerRef.current) clearInterval(timerRef.current);
+    setShareCode(null); setChatMsgs([]); setChatInput("");
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  // ── AI Tutor chat ──
+  const chatEndRef = useRef(null);
+  const sendChat = async () => {
+    const msg = chatInput.trim();
+    if (!msg || !files.length || chatLoading) return;
+    const userMsg = { role:"user", content:msg };
+    const next = [...chatMsgs, userMsg];
+    setChatMsgs(next); setChatInput(""); setChatLoading(true);
+    setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:"smooth"}), 50);
+    try {
+      const fileBlocks = files.map(f =>
+        f.mime === "application/pdf"
+          ? { type:"document", source:{ type:"base64", media_type:"application/pdf", data:f.data } }
+          : f.mime.startsWith("image/")
+          ? { type:"image", source:{ type:"base64", media_type:f.mime, data:f.data } }
+          : { type:"text", text:`File: ${f.name}\n${f.data.slice(0,6000)}` }
+      );
+      const resp = await fetch("/api/chat", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ fileBlocks, messages:next, language })
+      });
+      const d = await resp.json();
+      if (d.error) throw new Error(d.error.message);
+      setChatMsgs([...next, { role:"assistant", content:d.reply }]);
+    } catch(e) {
+      setChatMsgs([...next, { role:"assistant", content:"⚠️ "+(e.message||"Something went wrong.") }]);
+    } finally {
+      setChatLoading(false);
+      setTimeout(()=>chatEndRef.current?.scrollIntoView({behavior:"smooth"}), 100);
+    }
   };
 
   // ── Generate ──
@@ -364,7 +414,7 @@ export default function StudyAI() {
   const clearHistory = () => { setHistory([]); lsDel(); };
 
   // ── Ambient ──
-  const ambientBg = { quiz:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(255,107,138,.1) 0%,transparent 55%)`, notes:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(0,229,196,.08) 0%,transparent 55%)`, flash:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(255,181,71,.08) 0%,transparent 55%)`, summary:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(125,211,252,.07) 0%,transparent 55%)`, blank:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(192,132,252,.08) 0%,transparent 55%)` }[mode] || `radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.08) 0%,transparent 55%)`;
+  const ambientBg = { quiz:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(255,107,138,.1) 0%,transparent 55%)`, notes:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(0,229,196,.08) 0%,transparent 55%)`, flash:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(255,181,71,.08) 0%,transparent 55%)`, summary:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(125,211,252,.07) 0%,transparent 55%)`, blank:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(192,132,252,.08) 0%,transparent 55%)`, chat:`radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.09) 0%,transparent 55%),radial-gradient(ellipse 50% 35% at 90% 95%,rgba(52,211,153,.08) 0%,transparent 55%)` }[mode] || `radial-gradient(ellipse 60% 40% at 10% 5%,rgba(124,111,255,.08) 0%,transparent 55%)`;
 
   const canGenerate = files.length > 0 && files.every(f=>f.data) && mode && !loading;
 
@@ -506,11 +556,11 @@ export default function StudyAI() {
 
         {/* Mode cards */}
         {files.length>0&&(
-          <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:7,marginBottom:14}}>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:7,marginBottom:14}}>
             {MODES.map(({id,label,icon,desc,cls,ac})=>(
               <div key={id} className={`mcard ${cls}${mode===id?" sel":""}`}
                 style={{padding:"13px 7px",background:C.surface,textAlign:"center"}}
-                onClick={()=>setMode(id)}>
+                onClick={()=>{setMode(id);setResult(null);setChatMsgs([]);setChatInput("");}}>
                 <div style={{fontSize:24,marginBottom:6,position:"relative",zIndex:1}}>{icon}</div>
                 <div style={{fontFamily:"'Plus Jakarta Sans',sans-serif",fontWeight:700,fontSize:11,marginBottom:3,color:mode===id?ac:C.text,transition:"color .2s",position:"relative",zIndex:1,lineHeight:1.2}}>{label}</div>
                 <div style={{color:C.muted,fontSize:9.5,lineHeight:1.4,position:"relative",zIndex:1}}>{desc}</div>
@@ -519,11 +569,57 @@ export default function StudyAI() {
           </div>
         )}
 
-        {/* Generate button */}
-        {files.length>0&&(
+        {/* Generate button — hidden in chat mode */}
+        {files.length>0&&mode!=="chat"&&(
           <button className="gbtn" onClick={generate} disabled={!canGenerate} style={{marginBottom:20}}>
             {loading?<><span className="spin" style={{fontSize:16}}>⟳</span>{loadMsg}</>:`Generate ${MODES.find(m=>m.id===mode)?.label||"…"}`}
           </button>
+        )}
+
+        {/* ── AI TUTOR CHAT ── */}
+        {files.length>0&&mode==="chat"&&(
+          <div className="fadein" style={{marginBottom:20}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+              <div>
+                <h2 style={{fontFamily:"'Plus Jakarta Sans',sans-serif",fontWeight:800,fontSize:18,color:C.chat}}>🤖 AI Tutor</h2>
+                <p style={{fontSize:12,color:C.muted,marginTop:2}}>Ask anything about your uploaded file</p>
+              </div>
+              {chatMsgs.length>0&&<button className="iBtn" onClick={()=>setChatMsgs([])}>🗑 Clear</button>}
+            </div>
+            <div className="chat-box">
+              <div className="chat-msgs">
+                {chatMsgs.length===0&&(
+                  <div style={{textAlign:"center",margin:"auto",color:C.muted,fontSize:13}}>
+                    <div style={{fontSize:36,marginBottom:10}}>💬</div>
+                    <p>Ask me to explain topics, quiz you,</p>
+                    <p>summarize sections, or anything else.</p>
+                  </div>
+                )}
+                {chatMsgs.map((m,i)=>(
+                  <div key={i} className={`chat-bubble ${m.role==="user"?"chat-user":"chat-ai"}`}>
+                    {m.content}
+                  </div>
+                ))}
+                {chatLoading&&(
+                  <div className="chat-bubble chat-ai" style={{display:"flex",gap:6,alignItems:"center"}}>
+                    <span className="spin" style={{fontSize:14,color:C.chat}}>⟳</span>
+                    <span style={{color:C.muted,fontSize:13}}>Thinking…</span>
+                  </div>
+                )}
+                <div ref={chatEndRef}/>
+              </div>
+              <div className="chat-bar">
+                <textarea className="chat-in" rows={1}
+                  value={chatInput} onChange={e=>setChatInput(e.target.value)}
+                  onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat();}}}
+                  placeholder="Ask a question… (Enter to send)"/>
+                <button className="chat-send" onClick={sendChat} disabled={!chatInput.trim()||chatLoading}>Send</button>
+              </div>
+            </div>
+            <div style={{display:"flex",justifyContent:"flex-end",marginTop:10}}>
+              <button className="iBtn" onClick={resetAll}>↩ New file</button>
+            </div>
+          </div>
         )}
 
         {/* Error */}
