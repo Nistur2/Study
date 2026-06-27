@@ -707,10 +707,7 @@ export default function StudyAI() {
           </div>
         )}
 
-        {/* Footer */}
-        <div style={{textAlign:"center",marginTop:44,paddingTop:18,borderTop:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>
-          Powered by Claude AI
-        </div>
+
       </div>
     </div>
   );
