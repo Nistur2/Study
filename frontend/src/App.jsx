@@ -136,6 +136,14 @@ const lsGet  = ()    => { try { return JSON.parse(localStorage.getItem(LS_KEY)||
 const lsSet  = data  => { try { localStorage.setItem(LS_KEY, JSON.stringify(data)); } catch {} };
 const lsDel  = ()    => { try { localStorage.removeItem(LS_KEY); } catch {} };
 
+// ─── Shared UI components (outside main to avoid re-creation on render) ──────
+const ActionRow = ({ children }) => (
+  <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:16,alignItems:"center"}}>{children}</div>
+);
+const ResultCard = ({ style={}, children }) => (
+  <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px",marginBottom:10,...style}}>{children}</div>
+);
+
 // ─── Main component ──────────────────────────────────────────────────────────
 export default function StudyAI() {
 
@@ -190,7 +198,7 @@ export default function StudyAI() {
     const reveal = {};
     result.data.questions.forEach(q => { if (!selRef.current[q.id]) reveal[q.id] = true; });
     if (Object.keys(reveal).length) setRev(r => ({...r, ...reveal}));
-  }, [timeLeft]);
+  }, [timeLeft, timerOn, result]);
 
   // ── File helpers ──
   const readFile = f => new Promise((res, rej) => {
@@ -326,14 +334,14 @@ export default function StudyAI() {
 
   const shareResult = () => {
     if (!result) return;
-    const code = btoa(unescape(encodeURIComponent(JSON.stringify(result))));
+    const code = btoa(encodeURIComponent(JSON.stringify(result)));
     setShareCode(code);
     copyText(code, "share");
   };
 
   const loadFromCode = code => {
     try {
-      const res = JSON.parse(decodeURIComponent(escape(atob(code.trim()))));
+      const res = JSON.parse(decodeURIComponent(atob(code.trim())));
       setResult(res); setMode(res.type);
       setSel({}); setRev({}); setCardIdx(0); setFlipped(false);
       setBlanks({}); setSubmitted(false); setRetryIds(null); setShareCode(null);
@@ -355,12 +363,7 @@ export default function StudyAI() {
 
   const canGenerate = files.length > 0 && files.every(f=>f.data) && mode && !loading;
 
-  const ActionRow = ({ children }) => (
-    <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:16,alignItems:"center"}}>{children}</div>
-  );
-  const ResultCard = ({ style={}, children }) => (
-    <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px",marginBottom:10,...style}}>{children}</div>
-  );
+
 
   // ── History view ──────────────────────────────────────────────────────────
   if (showHistory) return (
@@ -707,6 +710,10 @@ export default function StudyAI() {
           </div>
         )}
 
+        {/* Footer */}
+        <div style={{textAlign:"center",marginTop:44,paddingTop:18,borderTop:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>
+          Powered by Viatrix
+        </div>
 
       </div>
     </div>
