@@ -92,11 +92,11 @@ const MODES = [
 ];
 
 const LOAD_MSGS = {
-  quiz:    ["Reading your file…","Crafting questions…","Building the quiz…","Almost done…"],
-  notes:   ["Reading your file…","Finding key ideas…","Organising notes…","Almost done…"],
-  flash:   ["Reading your file…","Identifying terms…","Making cards…","Almost done…"],
-  summary: ["Reading your file…","Extracting key points…","Writing summary…","Almost done…"],
-  blank:   ["Reading your file…","Picking key phrases…","Building blanks…","Almost done…"],
+  quiz:    ["Solana is reading your file…","Crafting questions…","Building the quiz…","Almost done…"],
+  notes:   ["Solana is reading your file…","Finding key ideas…","Organising notes…","Almost done…"],
+  flash:   ["Solana is reading your file…","Identifying terms…","Making cards…","Almost done…"],
+  summary: ["Solana is reading your file…","Extracting key points…","Writing summary…","Almost done…"],
+  blank:   ["Solana is reading your file…","Picking key phrases…","Building blanks…","Almost done…"],
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -327,12 +327,12 @@ export default function StudyAI() {
       });
 
       const d = await resp.json();
-      if (d.error) throw new Error(`API: ${d.error.type} — ${d.error.message}`);
-      if (!d.content?.length) throw new Error("Empty response from API. Try again.");
+      if (d.error) throw new Error(d.error.message || "Solana could not process the request.");
+      if (!d.content?.length) throw new Error("Solana returned an empty response. Try again.");
       const raw = d.content.map(b=>b.text||"").join("").replace(/```(?:json)?/g,"").replace(/```/g,"").trim();
       let parsed;
       try { parsed = JSON.parse(raw); }
-      catch { throw new Error("Response was cut off. Try a smaller file or shorter document."); }
+      catch { throw new Error("Solana response was incomplete. Try a smaller file."); }
       const res = { type:mode, data:parsed };
       setResult(res);
 
@@ -461,7 +461,7 @@ export default function StudyAI() {
             <div style={{width:38,height:38,borderRadius:11,background:`linear-gradient(135deg,${C.primary},#5A4FE0)`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:19,boxShadow:"0 4px 20px rgba(124,111,255,.45)"}}>✦</div>
             <span style={{fontFamily:"'Plus Jakarta Sans',sans-serif",fontWeight:800,fontSize:22,letterSpacing:"-.5px"}}>StudyAI</span>
           </div>
-          <p style={{color:C.muted,fontSize:13}}>Upload files · Quiz, Notes, Flashcards, Summary, Fill-Blanks</p>
+          <p style={{color:C.muted,fontSize:13}}>Powered by <span style={{color:C.primary,fontWeight:600}}>Solana AI</span> · Upload files · Quiz, Notes, Flashcards & more</p>
           <div style={{position:"absolute",right:0,top:0,display:"flex",gap:7}}>
             <button className="iBtn" title="Import share code" onClick={()=>setShowImport(p=>!p)}>📥</button>
             <button className="iBtn" title="History" onClick={()=>setShowHistory(true)} style={{position:"relative"}}>
@@ -813,7 +813,7 @@ export default function StudyAI() {
 
         {/* Footer */}
         <div style={{textAlign:"center",marginTop:44,paddingTop:18,borderTop:`1px solid ${C.border}`,color:C.muted,fontSize:12}}>
-          Powered by Viatrix
+          Powered by <span style={{color:C.primary,fontWeight:600}}>Solana AI</span> · Viatrix
         </div>
 
       </div>
